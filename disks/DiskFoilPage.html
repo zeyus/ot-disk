@@ -1,8 +1,376 @@
-{{ block title }}
-    Page title
-{{ endblock }}
-
 {{ block content }}
+<style>
+    .choices > div {
+        cursor: pointer;
+    }
+    #canvas {
+        position:absolute;
+        width: 100vw;
+        height: 100vh;
+        left:10px;
+        top:0;
+        /* position: relative;
+        left: calc(-1 * (100vw - 100%) / 2);
+        top: calc(-1 * (100vh - 100%) / 2); */
+    }
+    #lock-missing, #please-wait {
+        position: absolute;
+        top: 0;
+        left: 0;
+        z-index: 100;
+        background-color: rgba(0, 0, 0, 0.7);
+        padding-top: 45vh;
+        overflow: hidden;
+        width: 100vw;
+        height: 100vh;
+        text-align: center;
+        color: white;
 
-    {{ next_button }}
+    }
+    #please-wait {
+        display: none;
+    }
+    #spacer {
+        height: 100vh;
+        width: 100%;
+        z-index: -1;
+    }
+    body {
+        overflow-x: hidden;
+        scrollbar-width: 0;
+    }
+    body::-webkit-scrollbar {
+        width: 0;
+    }
+</style>
+<!-- break out of container-->
+    <div id="lock-missing">
+        <h3>Please click to start.</h3>
+    </div>
+    <div id="please-wait">
+        <h3>Please wait...</h3>
+    </div>
+    <canvas id="canvas" width="800" height="800">
+        Your browser does not support the HTML5 canvas element.
+    </canvas>
+    <div id="spacer"></div>
+    <input type="hidden" id="trial" value="{{ trial_id }}" />
+    <input type="hidden" id="foil" value="{{ foil }}" />
+    <input type="hidden" id="oddball" value="{{ oddball }}" />
+    <input type="hidden" id="num_images" value="{{ num_images }}" />
+
+    <script>
+        /**
+         * Images are presented in a circle around the center of the canvas.
+         * Each should be equally spaced, and scaled to fit all images on the canvas.
+         * @param {HTMLImageElement} img - the image to be displayed
+         * @param {HTMLCanvasElement} canvas - the canvas on which to display the image
+         * @param {number} nImages - the number of images to display
+         * @param {number} imageNum - the index of the image to display
+         * @returns {Object} - an object with the width, height, x, and y properties
+         */
+        function calcImgSizeAndPos(img, canvas, nImages, imageNum) {
+            const ctx = canvas.getContext('2d');
+            const imgWidth = img.width;
+            const imgHeight = img.height;
+            const canvasWidth = canvas.width;
+            const canvasHeight = canvas.height;
+            // imgScale is the ratio of the image's width to the canvas's width (or height), divided by 4 (to leave space around the image)
+            const imgScale = Math.min(canvasWidth, canvasHeight) / 4 / Math.max(imgWidth, imgHeight);
+            const imgScaledWidth = imgWidth * imgScale;
+            const imgScaledHeight = imgHeight * imgScale;
+            const imgX = canvasWidth / 2 + 1.25*imgScaledWidth * Math.cos(2 * Math.PI * imageNum / nImages);
+            const imgY = canvasHeight / 2 + 1.25*imgScaledHeight * Math.sin(2 * Math.PI * imageNum / nImages);
+            return {
+                width: imgScaledWidth,
+                height: imgScaledHeight,
+                x: imgX,
+                y: imgY,
+            };
+        }
+
+        function makeFixationCross(ctx, canvas) {
+            ctx.beginPath();
+            ctx.moveTo(canvas.width / 2 - 10, canvas.height / 2);
+            ctx.lineTo(canvas.width / 2 + 10, canvas.height / 2);
+            ctx.moveTo(canvas.width / 2, canvas.height / 2 - 10);
+            ctx.lineTo(canvas.width / 2, canvas.height / 2 + 10);
+            ctx.stroke();
+        }
+
+        const speedScale = 0.15;
+        let oddballImageNum = 0;
+        let timeout;
+
+        // listen for messages from the server
+        let liveRecv = function (data) {
+            // placeholder
+            console.log('received', data);
+        }
+
+        function updateCoord(pos, delta, max) {
+            pos += delta * speedScale;
+            pos %= max;
+            if (pos < 0) {
+            pos += max;
+            }
+            return pos;
+        }
+        
+        
+        document.addEventListener("DOMContentLoaded", (event) => {
+            // pointer lock test
+            const lockMissing = document.getElementById('lock-missing');
+            const pleaseWait = document.getElementById('please-wait');
+            const canvas = document.getElementById('canvas');
+            const ctx = canvas.getContext('2d');
+            const otreeForm = document.getElementById('form');
+            
+            ctx.canvas.width = visualViewport.width;
+            ctx.canvas.height = visualViewport.height;
+            
+            document.addEventListener("mousemove", trace);
+
+            let coord = {
+                x: canvas.width / 2,
+                y: canvas.height / 2
+            };  // mouse coordinates
+            let pointing = false; 
+            let trialReady = false;
+
+            let targetCenters = [];
+
+            function getPosition(event){ 
+                coord.x = updateCoord(coord.x, event.movementX, canvas.width);
+                coord.y = updateCoord(coord.y, event.movementY, canvas.height);
+            }
+
+            function moveCursorToCenter() {
+                coord.x = canvas.width / 2;
+                coord.y = canvas.height / 2;
+            }
+
+
+            function startPointing(event){ 
+                pointing = true; 
+
+            } 
+            function stopPointing(){ 
+                pointing = false; 
+            } 
+
+            function drawPointer() {
+                // draw the mouse pointer
+                ctx.beginPath();
+                ctx.fillStyle = 'red';
+                ctx.arc(coord.x, coord.y, 5, 0, 2 * Math.PI);
+                ctx.fill();
+            }
+
+            function showLockMissing() {
+                lockMissing.style.display = 'block';
+                stopPointing();
+            }
+
+            /* draw a mouse pointer, but no line or trail */
+            function trace(event){
+                if (!document.pointerLockElement) {
+                    showLockMissing();
+                    return;
+                }
+                if (!pointing || !trialReady) return;
+                getPosition(event);
+                clearCanvas();
+                updateImages(oddballImageNum);
+                drawPointer();
+                const inTarget = cursorInTarget();
+                if (inTarget !== null) {
+                    console.log('in target' + inTarget.i);
+                    moveCursorToCenter();
+                    trialReady = false;
+                    stopPointing();
+                    clearCanvas();
+                    pleaseWait.style.display = 'block';
+                    liveSend({ event: 'choice', trial: trial.value, choice: inTarget.i, isOddball: inTarget.isOddball });
+                }
+            }
+
+            
+
+            visualViewport.addEventListener('resize', () => {
+                ctx.canvas.width = visualViewport.width;
+                ctx.canvas.height = visualViewport.height;
+                clearCanvas();
+                updateImages(oddballImageNum);
+                moveCursorToCenter();
+                trace();
+            });
+
+
+            async function lockPointer() {
+                if(document.pointerLockElement) {
+                    lockMissing.style.display = 'none';
+                    startPointing();
+                    return;
+                }
+                await canvas.requestPointerLock({
+                    unadjustedMovement: false,
+                }).then(() => {
+                    console.log('pointer locked');
+                    lockMissing.style.display = 'none';
+                    startPointing();
+                }).catch((err) => {
+                    console.error(err);
+                });
+            }
+            
+            canvas.addEventListener("click", async () => {
+                if (document.pointerLockElement) {
+                    return;
+                }
+                await lockPointer();
+            });
+            lockMissing.addEventListener("click", async () => {
+                if (!document.pointerLockElement) {
+                    await lockPointer();
+                }
+                lockMissing.style.display = 'none';
+            });
+            
+            // initial page load, use hidden fields to populate the page
+            const trial = document.getElementById('trial');
+            const foil = document.getElementById('foil');
+            const oddball = document.getElementById('oddball');
+            const nImages = document.getElementById('num_images').value;
+            // const choice1El = document.getElementById('choice_1');
+            // const choice2El = document.getElementById('choice_2');
+            // const target_img = document.getElementById('target_img');
+            
+            const foilImg = document.createElement('img');
+            foilImg.id = 'choice1_img';
+            foilImg.classList.add('img-fluid');
+            
+            const oddballImg = document.createElement('img');
+            oddballImg.id = 'choice2_img';
+            oddballImg.classList.add('img-fluid');
+
+            function clearCanvas() {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+            }
+
+            function cursorInTarget() {
+                for (let i = 0; i < targetCenters.length; i++) {
+                    const target = targetCenters[i];
+                    if (Math.sqrt((coord.x - target.x) ** 2 + (coord.y - target.y) ** 2) < target.r) {
+                        return target;
+                    }
+                }
+                return null;
+            }
+
+            function addToCanvas(img, imgNum) {
+                const imgSizeAndPos = calcImgSizeAndPos(img, canvas, nImages, imgNum);
+                ctx.drawImage(img, imgSizeAndPos.x - imgSizeAndPos.width / 2, imgSizeAndPos.y - imgSizeAndPos.height / 2, imgSizeAndPos.width, imgSizeAndPos.height);
+                return { x: imgSizeAndPos.x, y: imgSizeAndPos.y, r: imgSizeAndPos.width / 2 };
+            }
+
+            function updateImages(oddN = null) {
+                makeFixationCross(ctx, canvas);
+                // add nImages - 1 foil images + 1 oddball image (randomly placed)
+                if (oddN === null) {
+                    oddballImageNum = Math.floor(Math.random() * nImages);
+                    console.log(oddballImageNum);
+                } else {
+                    oddballImageNum = oddN;
+                }
+                targetCenters = [];
+                for (let i = 0; i < nImages; i++) {
+                    if (i === oddballImageNum) {
+                        const center = addToCanvas(oddballImg, i);
+                        center["i"] = i;
+                        center["isOddball"] = true;
+                        targetCenters.push(center);
+                    } else {
+                        const center = addToCanvas(foilImg, i);
+                        center["i"] = i;
+                        center["isOddball"] = false;
+                        targetCenters.push(center);
+                    }
+                }
+            }
+            
+            function startTrial() {
+                if (trialReady) {
+                    return;
+                }
+                if (!foilImg.complete || !oddballImg.complete) {
+                    foilImg.addEventListener('load', startTrial, { once: true });
+                    oddballImg.addEventListener('load', startTrial, { once: true });
+                    return;
+                }
+                console.log('trial started');
+                clearCanvas();
+                moveCursorToCenter();
+                updateImages();
+                drawPointer();
+                lockPointer();
+                pleaseWait.style.display = 'none';
+                trialReady = true;
+            }
+
+            function updateTrial(delay = null) {
+                
+                foilImg.src = "/static/" + foil.value;
+                oddballImg.src = "/static/" + oddball.value;
+
+                if (delay !== null) {
+                    console.log('delaying start: ' + delay);
+                    // Clear any existing timeouts to prevent any overlap (if relevant)
+                    if (typeof timeout !== 'undefined') {
+                        clearTimeout(timeout);
+                    }
+                    timeout = setTimeout(
+                        () => startTrial(),
+                        delay
+                    );
+                    return;
+                }
+                console.log('immediate start');
+                startTrial();
+                return;
+                
+            }
+            
+            updateTrial();
+
+            
+
+            liveRecv = function(data) {
+                const event = Object.keys(data).includes('event') ? data.event : null;
+                console.log(data);
+                console.log(event);
+                switch (event) {
+                    case 'next':
+                        // show result, then request next trial
+                        liveSend({ event: 'next' });
+                        break;
+                    case 'trial':
+                        // update the trial
+                        trial.value = data.trial_id;
+                        foil.value = data.foil;
+                        oddball.value = data.oddball;
+                        // start with a 1 second delay
+                        // to avoid participants flying through all the trials
+                        updateTrial(1000);
+                        break;
+                    case 'end':
+                        otreeForm.submit();
+                        break;
+                    default:
+                        break;
+                }
+            }
+
+        });
+    </script>
 {{ endblock }}

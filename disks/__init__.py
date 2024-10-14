@@ -38,6 +38,7 @@ class C(BaseConstants):
     NUM_ROUNDS: int = 2 # one for each exp type, using live pages
     STIM_PATH: Path = Path("stimuli")
     STIM_CSV: Path = Path(__file__).parent / "_private/trial_list.csv"
+    NUM_FOILS: int = 6
 
 
 class DataCache:
@@ -58,7 +59,7 @@ class Group(BaseGroup, metaclass=AnnotationFreeMeta):
 
 class Player(BasePlayer, metaclass=AnnotationFreeMeta):
     trial_id: int = models.IntegerField(initial=0)
-
+    num_trials: int = models.IntegerField()
 
 class Trial(ExtraModel, metaclass=AnnotationFreeMeta):
     trial_id: int = models.IntegerField()
@@ -69,6 +70,7 @@ class Trial(ExtraModel, metaclass=AnnotationFreeMeta):
     trial_start: float = models.FloatField(initial=0.0)
     trial_end: float = models.FloatField(initial=0.0)
     response: str = models.StringField(initial="")
+    correct: bool = models.BooleanField(initial=False)
     response_time: float = models.FloatField(initial=0.0)
 
 
@@ -91,6 +93,9 @@ def creating_session(subsession: Subsession) -> None:
     for i,p in enumerate(subsession.get_players()):
         # get the stim list for this player
         stim_list = get_stim_list(i, paradigm)
+        num_trials = len(stim_list)
+        p.trial_id = 0
+        p.num_trials = num_trials
         # save the stim order for this player
         for j, row in stim_list.iterrows():
             Trial.create(
@@ -116,12 +121,12 @@ class WelcomePage(Page):
         return player.round_number == 1
 
 
-class DiskTrialPage(Page):
+class DiskFoilPage(Page):
 
     # only display this page on the first round
     @staticmethod
     def is_displayed(player: Player):
-        return player.round_number == 1
+        return player.round_number == 1 and player.trial_id < player.num_trials
     
     @staticmethod
     def vars_for_template(player: Player):
@@ -131,37 +136,52 @@ class DiskTrialPage(Page):
             "trial_id": trial.trial_id,
             "oddball": trial.oddball,
             "foil": trial.foil,
-            "target": trial.oddball, # TEMP, this is incorrect
+            "num_images": C.NUM_FOILS + 1
         }
     
     @staticmethod
     def live_method(player: Player, data: dict[str, Any]):
-        response = {player.id_in_group: {"event": "error"}}
-        print(data)
+        # prepare response (default to error)
+        response: dict[str, Any] = {
+            player.id_in_group: {"event": "error"}
+        }
+
+        # must have an event key
         if "event" in data:
             event = data["event"]
-            if event == "choice":
+
+            if event == "start":
+                trial = get_current_trial(player)
+                trial.trial_start = datetime.now().timestamp()
+            # the participant has madae a selection
+            elif event == "choice":
                 trial = get_current_trial(player, update_start_time=False)
-                print(trial.trial_id)
                 if trial.trial_id == int(data["trial"]):
                     trial.response = data["choice"]
+                    trial.correct = data["isOddball"]
                     trial.trial_end = datetime.now().timestamp()
                     trial.response_time = trial.trial_end - trial.trial_start
+                    print(player.trial_id + 1, ' / ', player.num_trials)
                     player.trial_id += 1
-                    response[player.id_in_group]["event"] = "next"
+                    if player.trial_id < player.num_trials:
+                        response[player.id_in_group]["event"] = "next"
+                    else:
+                        response[player.id_in_group]["event"] = "end"
+
+            # the page requests the next stimulus
             elif event == "next":
                 trial = get_current_trial(player)
                 response[player.id_in_group]["event"] = "trial"
                 response[player.id_in_group]["trial_id"] = trial.trial_id
                 response[player.id_in_group]["oddball"] = trial.oddball
                 response[player.id_in_group]["foil"] = trial.foil
-                response[player.id_in_group]["target"] = trial.oddball
+                response[player.id_in_group]["num_images"] = C.NUM_FOILS + 1
                 
         return response
 
 
 
-class DiskFoilPage(Page):
+class DiskTrialPage(Page):
 
     # only display this page on the second round
     @staticmethod
@@ -177,4 +197,4 @@ class ThankYouPage(Page):
         return player.round_number == C.NUM_ROUNDS
 
 
-page_sequence = [WelcomePage, DiskTrialPage, ThankYouPage]
+page_sequence = [WelcomePage, DiskFoilPage, ThankYouPage]
