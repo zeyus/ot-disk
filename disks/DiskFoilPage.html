@@ -216,7 +216,7 @@
                     return;
                 }
                 if (!pointing || !trialReady) return;
-                getPosition(event);
+                if (event) getPosition(event);
                 clearCanvas();
                 updateImages(oddballImageNum);
                 drawPointer();
@@ -263,7 +263,7 @@
                 clearCanvas();
                 updateImages(oddballImageNum);
                 moveCursorToCenter();
-                trace();
+                trace(null);
             });
 
 
