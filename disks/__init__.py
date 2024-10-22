@@ -11,6 +11,7 @@ from otree.api import (  # type: ignore
 )
 from otree.models import Participant  # type: ignore
 import json
+from random import randint
 from datetime import datetime
 from typing import Generator, Any, Literal
 from pathlib import Path
@@ -35,7 +36,7 @@ class AnnotationFreeMeta(DeclarativeMeta):
 class C(BaseConstants):
     NAME_IN_URL: str = "disks"
     PLAYERS_PER_GROUP: int | None = None
-    NUM_ROUNDS: int = 2 # one for each exp type, using live pages
+    NUM_ROUNDS: int = 1 # one for each exp type, using live pages
     STIM_PATH: Path = Path("stimuli")
     STIM_CSV: Path = Path(__file__).parent / "_private/trial_list.csv"
     NUM_FOILS: int = 6
@@ -65,7 +66,7 @@ class Trial(ExtraModel, metaclass=AnnotationFreeMeta):
     trial_id: int = models.IntegerField()
     oddball: str = models.StringField()
     foil: str = models.StringField()
-    pardigm: int = models.IntegerField()
+    csv_order: int = models.IntegerField()
     player: Player = models.Link(Player)
     trial_start: float = models.FloatField(initial=0.0)
     trial_end: float = models.FloatField(initial=0.0)
@@ -79,30 +80,30 @@ class Subsession(BaseSubsession, metaclass=AnnotationFreeMeta):
     pass
 
 
-def get_stim_list(id: int, paradigm: Literal[0, 1]) -> pd.DataFrame:
+def get_stim_list(id: int, csv_order: Literal[0, 1]) -> pd.DataFrame:
     # ID = participant ID, Paradigm = 0 or 1 = order
     stims = DataCache.get()
     # get the stim list for this player
-    stim_list = stims[(stims["ID"] == id) & (stims["order"] == paradigm)]
+    stim_list = stims[(stims["ID"] == id) & (stims["order"] == csv_order)]
     return stim_list
 
 
 def creating_session(subsession: Subsession) -> None:
     # the order column represents the experiment type (0 or 1)
-    paradigm = subsession.round_number - 1
+    csv_order: Literal[0, 1] = randint(0, 1)  # type: ignore
     for i,p in enumerate(subsession.get_players()):
         # get the stim list for this player
-        stim_list = get_stim_list(i, paradigm)
+        stim_list = get_stim_list(i, csv_order)
         num_trials = len(stim_list)
         p.trial_id = 0
         p.num_trials = num_trials
         # save the stim order for this player
-        for j, row in stim_list.iterrows():
+        for _, row in stim_list.iterrows():
             Trial.create(
                 trial_id=row["trial"],
                 oddball=(C.STIM_PATH/row["oddball"]).with_suffix(".png").as_posix(),
                 foil=(C.STIM_PATH/row["foil"]).with_suffix(".png").as_posix(),
-                pardigm=paradigm,
+                csv_order=csv_order,
                 player=p
             )
 
@@ -126,7 +127,7 @@ class DiskFoilPage(Page):
     # only display this page on the first round
     @staticmethod
     def is_displayed(player: Player):
-        return player.round_number == 1 and player.trial_id < player.num_trials
+        return player.trial_id < player.num_trials
     
     @staticmethod
     def vars_for_template(player: Player):
@@ -136,7 +137,8 @@ class DiskFoilPage(Page):
             "trial_id": trial.trial_id,
             "oddball": trial.oddball,
             "foil": trial.foil,
-            "num_images": C.NUM_FOILS + 1
+            "num_images": C.NUM_FOILS + 1,
+            "num_trials": player.num_trials
         }
     
     @staticmethod
@@ -178,15 +180,6 @@ class DiskFoilPage(Page):
                 response[player.id_in_group]["num_images"] = C.NUM_FOILS + 1
                 
         return response
-
-
-
-class DiskTrialPage(Page):
-
-    # only display this page on the second round
-    @staticmethod
-    def is_displayed(player: Player):
-        return player.round_number == 2
 
 
 class ThankYouPage(Page):

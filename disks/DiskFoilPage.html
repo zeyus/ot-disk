@@ -43,6 +43,7 @@
         width: 0;
     }
 </style>
+    <div id="trial-info"></div>
 <!-- break out of container-->
     <div id="lock-missing">
         <h3>Please click to start.</h3>
@@ -58,6 +59,7 @@
     <input type="hidden" id="foil" value="{{ foil }}" />
     <input type="hidden" id="oddball" value="{{ oddball }}" />
     <input type="hidden" id="num_images" value="{{ num_images }}" />
+    <input type="hidden" id="num_trials" value="{{ num_trials }}" />
 
     <script>
         /**
@@ -98,7 +100,7 @@
             ctx.stroke();
         }
 
-        const speedScale = 0.15;
+        const speedScale = 1.0;
         let oddballImageNum = 0;
         let timeout;
 
@@ -119,6 +121,7 @@
         
         
         document.addEventListener("DOMContentLoaded", (event) => {
+            console.log('DOM fully loaded and parsed'); 
             // pointer lock test
             const lockMissing = document.getElementById('lock-missing');
             const pleaseWait = document.getElementById('please-wait');
@@ -126,10 +129,40 @@
             const ctx = canvas.getContext('2d');
             const otreeForm = document.getElementById('form');
             
+            
             ctx.canvas.width = visualViewport.width;
             ctx.canvas.height = visualViewport.height;
             
             document.addEventListener("mousemove", trace);
+
+            // initial page load, use hidden fields to populate the page
+            const trial = document.getElementById('trial');
+            const foil = document.getElementById('foil');
+            const oddball = document.getElementById('oddball');
+            const nImages = document.getElementById('num_images').value;
+            const nTrials = document.getElementById('num_trials').value;
+            const trialInfo = document.getElementById('trial-info');
+
+            updateTrialInfo(trialInfo, parseInt(trial.value)+1, nTrials);
+            // const choice1El = document.getElementById('choice_1');
+            // const choice2El = document.getElementById('choice_2');
+            // const target_img = document.getElementById('target_img');
+
+            const successImg = document.createElement('img');
+            successImg.src = "/static/success.png";
+            successImg.classList.add('img-fluid');
+
+            const failImg = document.createElement('img');
+            failImg.src = "/static/failure.png";
+            failImg.classList.add('img-fluid');
+            
+            const foilImg = document.createElement('img');
+            foilImg.id = 'choice1_img';
+            foilImg.classList.add('img-fluid');
+            
+            const oddballImg = document.createElement('img');
+            oddballImg.id = 'choice2_img';
+            oddballImg.classList.add('img-fluid');
 
             let coord = {
                 x: canvas.width / 2,
@@ -137,6 +170,8 @@
             };  // mouse coordinates
             let pointing = false; 
             let trialReady = false;
+            let trialDone = false;
+            let resultImg = null;
 
             let targetCenters = [];
 
@@ -171,7 +206,9 @@
                 lockMissing.style.display = 'block';
                 stopPointing();
             }
-
+            function sleep(ms) {
+                return new Promise(resolve => setTimeout(resolve, ms));
+            }
             /* draw a mouse pointer, but no line or trail */
             function trace(event){
                 if (!document.pointerLockElement) {
@@ -183,19 +220,42 @@
                 clearCanvas();
                 updateImages(oddballImageNum);
                 drawPointer();
+            }
+
+            function addResult() {
+                if (!trialDone || resultImg === null) {
+                    return;
+                }
+                if (resultImg.isOddball) {
+                    addToCanvas(successImg, resultImg.i);
+                } else {
+                    addToCanvas(failImg, resultImg.i);
+                }
+            }
+        
+            function checkTarget() {
                 const inTarget = cursorInTarget();
                 if (inTarget !== null) {
                     console.log('in target' + inTarget.i);
                     moveCursorToCenter();
                     trialReady = false;
+                    trialDone = true;
+                    resultImg = inTarget;
+                    addResult();
                     stopPointing();
-                    clearCanvas();
-                    pleaseWait.style.display = 'block';
-                    liveSend({ event: 'choice', trial: trial.value, choice: inTarget.i, isOddball: inTarget.isOddball });
+                    
+                    sleep(1000).then(() => {
+                        clearCanvas();
+                        // pleaseWait.style.display = 'block';
+                        liveSend({ event: 'choice', trial: trial.value, choice: inTarget.i, isOddball: inTarget.isOddball });
+                    });
                 }
             }
 
-            
+            function updateTrialInfo(infoEl, trialNum, nTrials) {
+                infoEl.innerHTML = `Trial ${trialNum} of ${nTrials}`;
+            }
+
 
             visualViewport.addEventListener('resize', () => {
                 ctx.canvas.width = visualViewport.width;
@@ -226,6 +286,8 @@
             
             canvas.addEventListener("click", async () => {
                 if (document.pointerLockElement) {
+                    if (!pointing || !trialReady) return;
+                    checkTarget();
                     return;
                 }
                 await lockPointer();
@@ -237,25 +299,28 @@
                 lockMissing.style.display = 'none';
             });
             
-            // initial page load, use hidden fields to populate the page
-            const trial = document.getElementById('trial');
-            const foil = document.getElementById('foil');
-            const oddball = document.getElementById('oddball');
-            const nImages = document.getElementById('num_images').value;
-            // const choice1El = document.getElementById('choice_1');
-            // const choice2El = document.getElementById('choice_2');
-            // const target_img = document.getElementById('target_img');
             
-            const foilImg = document.createElement('img');
-            foilImg.id = 'choice1_img';
-            foilImg.classList.add('img-fluid');
-            
-            const oddballImg = document.createElement('img');
-            oddballImg.id = 'choice2_img';
-            oddballImg.classList.add('img-fluid');
 
             function clearCanvas() {
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
+            }
+
+            function drawContinueButton() {
+                ctx.font = '20px Arial';
+                ctx.fillStyle = 'black';
+                const text = 'Click to continue';
+                const textWidth = ctx.measureText(text).width;
+                const textHeight = ctx.measureText('W').width;
+                const vOffset = Math.floor(textHeight / 2);
+                console.log(vOffset);
+                ctx.fillText(text, canvas.width / 2 - textWidth / 2, canvas.height / 2 + vOffset);
+            
+                // draw a rectangle around the text
+                ctx.beginPath();
+                ctx.rect(canvas.width / 2 - textWidth / 2 - 5, canvas.height / 2 - vOffset - 5, textWidth + 10, textHeight + 10);
+                ctx.stroke();
+
+
             }
 
             function cursorInTarget() {
@@ -297,17 +362,23 @@
                         targetCenters.push(center);
                     }
                 }
+                addResult();
             }
             
             function startTrial() {
                 if (trialReady) {
                     return;
                 }
-                if (!foilImg.complete || !oddballImg.complete) {
+                if (!foilImg.complete) {
                     foilImg.addEventListener('load', startTrial, { once: true });
+                    return;
+                }
+                if (!oddballImg.complete) {
                     oddballImg.addEventListener('load', startTrial, { once: true });
                     return;
                 }
+                trialDone = false;
+                resultImg = null;
                 console.log('trial started');
                 clearCanvas();
                 moveCursorToCenter();
@@ -318,30 +389,26 @@
                 trialReady = true;
             }
 
-            function updateTrial(delay = null) {
+            function updateTrial(cont = true) {
                 
                 foilImg.src = "/static/" + foil.value;
                 oddballImg.src = "/static/" + oddball.value;
 
-                if (delay !== null) {
-                    console.log('delaying start: ' + delay);
-                    // Clear any existing timeouts to prevent any overlap (if relevant)
-                    if (typeof timeout !== 'undefined') {
-                        clearTimeout(timeout);
-                    }
-                    timeout = setTimeout(
-                        () => startTrial(),
-                        delay
-                    );
+                
+                if (!cont) {
+                    console.log('trial not continued');
+                    startTrial();
                     return;
                 }
-                console.log('immediate start');
-                startTrial();
+
+                drawContinueButton();
+                canvas.addEventListener("click", () => {
+                    startTrial();
+                }, { once: true });
                 return;
-                
             }
-            
-            updateTrial();
+            console.log('trial', trial.value);
+            updateTrial(false);
 
             
 
@@ -359,9 +426,10 @@
                         trial.value = data.trial_id;
                         foil.value = data.foil;
                         oddball.value = data.oddball;
+                        updateTrialInfo(trialInfo, parseInt(trial.value)+1, nTrials);
                         // start with a 1 second delay
                         // to avoid participants flying through all the trials
-                        updateTrial(1000);
+                        updateTrial();
                         break;
                     case 'end':
                         otreeForm.submit();
