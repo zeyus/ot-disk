@@ -80,20 +80,19 @@ class Subsession(BaseSubsession, metaclass=AnnotationFreeMeta):
     pass
 
 
-def get_stim_list(id: int, csv_order: Literal[0, 1]) -> pd.DataFrame:
+def get_stim_list(id: int) -> pd.DataFrame:
     # ID = participant ID, Paradigm = 0 or 1 = order
     stims = DataCache.get()
     # get the stim list for this player
-    stim_list = stims[(stims["ID"] == id) & (stims["order"] == csv_order)]
+    stim_list = stims[(stims["ID"] == id)]
     return stim_list
 
 
 def creating_session(subsession: Subsession) -> None:
     # the order column represents the experiment type (0 or 1)
-    csv_order: Literal[0, 1] = randint(0, 1)  # type: ignore
     for i,p in enumerate(subsession.get_players()):
         # get the stim list for this player
-        stim_list = get_stim_list(i, csv_order)
+        stim_list = get_stim_list(i)
         num_trials = len(stim_list)
         p.trial_id = 0
         p.num_trials = num_trials
