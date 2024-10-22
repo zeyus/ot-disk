@@ -127,6 +127,7 @@ class DiskFoilPage(Page):
     # only display this page on the first round
     @staticmethod
     def is_displayed(player: Player):
+        print(player.trial_id, player.num_trials)
         return player.trial_id < player.num_trials
     
     @staticmethod

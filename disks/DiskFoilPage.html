@@ -273,15 +273,17 @@
                     startPointing();
                     return;
                 }
-                await canvas.requestPointerLock({
-                    unadjustedMovement: false,
-                }).then(() => {
+                try {
+                    await canvas.requestPointerLock({
+                        unadjustedMovement: false,
+                    });
                     console.log('pointer locked');
                     lockMissing.style.display = 'none';
                     startPointing();
-                }).catch((err) => {
-                    console.error(err);
-                });
+                } catch (e) {
+                    console.error(e);
+                    lockMissing.style.display = 'block';
+                }
             }
             
             canvas.addEventListener("click", async () => {
