@@ -102,7 +102,7 @@ def creating_session(subsession: Subsession) -> None:
                 trial_id=row["trial"],
                 oddball=(C.STIM_PATH/row["oddball"]).with_suffix(".png").as_posix(),
                 foil=(C.STIM_PATH/row["foil"]).with_suffix(".png").as_posix(),
-                csv_order=csv_order,
+                csv_order=row["order"],
                 player=p
             )
 
