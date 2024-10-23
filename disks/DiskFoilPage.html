@@ -243,12 +243,7 @@
                     resultImg = inTarget;
                     addResult();
                     stopPointing();
-                    
-                    sleep(1000).then(() => {
-                        clearCanvas();
-                        // pleaseWait.style.display = 'block';
-                        liveSend({ event: 'choice', trial: trial.value, choice: inTarget.i, isOddball: inTarget.isOddball });
-                    });
+                    liveSend({ event: 'choice', trial: trial.value, choice: inTarget.i, isOddball: inTarget.isOddball });
                 }
             }
 
@@ -282,7 +277,6 @@
                     startPointing();
                 } catch (e) {
                     console.error(e);
-                    lockMissing.style.display = 'block';
                 }
             }
             
@@ -402,11 +396,7 @@
                     startTrial();
                     return;
                 }
-
-                drawContinueButton();
-                canvas.addEventListener("click", () => {
-                    startTrial();
-                }, { once: true });
+                
                 return;
             }
             console.log('trial', trial.value);
@@ -432,6 +422,14 @@
                         // start with a 1 second delay
                         // to avoid participants flying through all the trials
                         updateTrial();
+                        sleep(1000).then(() => {
+                            clearCanvas();
+                            drawContinueButton();
+                            canvas.addEventListener("click", () => {
+                                startTrial();
+                            }, { once: true });
+                        });
+                        
                         break;
                     case 'end':
                         otreeForm.submit();
