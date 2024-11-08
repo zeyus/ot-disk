@@ -406,12 +406,15 @@
 
             liveRecv = function(data) {
                 const event = Object.keys(data).includes('event') ? data.event : null;
-                console.log(data);
-                console.log(event);
                 switch (event) {
                     case 'next':
+                        // get trial id if sent
+                        let trial_id = parseInt(trial.value);
+                        if (Object.keys(data).includes('trial_id')) {
+                            trial_id = data.trial_id;
+                        }
                         // show result, then request next trial
-                        liveSend({ event: 'next' });
+                        liveSend({ event: 'next', trial: trial_id });
                         break;
                     case 'trial':
                         // update the trial

@@ -40,6 +40,7 @@ class C(BaseConstants):
     STIM_PATH: Path = Path("stimuli")
     STIM_CSV: Path = Path(__file__).parent / "_private/trial_list.csv"
     NUM_FOILS: int = 6
+    NUM_PRACTICE_TRIALS: int = 3
 
 
 class DataCache:
@@ -78,6 +79,35 @@ class Trial(ExtraModel, metaclass=AnnotationFreeMeta):
 
 class Subsession(BaseSubsession, metaclass=AnnotationFreeMeta):
     pass
+
+
+def get_practice_stims() -> list[str]:
+    stims = C.STIM_PATH / "practice"
+    return [
+        (stims / "practice1.jpg").as_posix(),
+        (stims / "practice2.jpg").as_posix(),
+        (stims / "practice3.jpg").as_posix(),
+        (stims / "practice4.jpg").as_posix(),
+        (stims / "practice5.jpg").as_posix(),
+        (stims / "practice6.jpg").as_posix(),
+    ]
+
+def practice_trial_generator() -> Generator[dict[str, str | int], None, None]:
+    stims = get_practice_stims()
+    n_practice = len(stims)
+    for i in range(C.NUM_PRACTICE_TRIALS):
+        oddball = randint(0, n_practice - 1)
+        # select a random foil that is not the oddball
+        foil = randint(0, n_practice - 1)
+        while foil == oddball:
+            foil = randint(0, n_practice - 1)
+
+        yield {
+            "oddball": stims[oddball],
+            "foil": stims[foil],
+            "isOddball": randint(0, 1),
+            "trial": i,
+        }
 
 
 def get_stim_list(id: int) -> pd.DataFrame:
@@ -126,7 +156,6 @@ class DiskFoilPage(Page):
     # only display this page on the first round
     @staticmethod
     def is_displayed(player: Player):
-        print(player.trial_id, player.num_trials)
         return player.trial_id < player.num_trials
     
     @staticmethod
@@ -138,7 +167,7 @@ class DiskFoilPage(Page):
             "oddball": trial.oddball,
             "foil": trial.foil,
             "num_images": C.NUM_FOILS + 1,
-            "num_trials": player.num_trials
+            "num_trials": C.NUM_PRACTICE_TRIALS
         }
     
     @staticmethod
@@ -181,6 +210,75 @@ class DiskFoilPage(Page):
                 
         return response
 
+class PracticeTrialPage(Page):
+    template_name: str = "disks/DiskFoilPage.html"
+    # only display this page on the first round
+    @staticmethod
+    def is_displayed(player: Player):
+        return player.trial_id < player.num_trials
+    
+    @staticmethod
+    def vars_for_template(player: Player):
+        practice_trials = practice_trial_generator()
+        trial = next(practice_trials)
+        return {
+            "trial_id": trial["trial"],
+            "oddball": trial["oddball"],
+            "foil": trial["foil"],
+            "num_images": C.NUM_FOILS + 1,
+            "num_trials": C.NUM_PRACTICE_TRIALS
+        }
+    
+    @staticmethod
+    def live_method(player: Player, data: dict[str, Any]):
+        # prepare response (default to error)
+        response: dict[str, Any] = {
+            player.id_in_group: {"event": "error"}
+        }
+
+        # must have an event key
+        if "event" in data:
+            event = data["event"]
+
+            if event == "start":
+                practice_trials = practice_trial_generator()
+                trial = next(practice_trials)
+                response[player.id_in_group]["event"] = "trial"
+                response[player.id_in_group]["trial_id"] = trial["trial"]
+                response[player.id_in_group]["oddball"] = trial["oddball"]
+                response[player.id_in_group]["foil"] = trial["foil"]
+                response[player.id_in_group]["num_images"] = C.NUM_FOILS + 1
+            # the participant has madae a selection
+            elif event == "choice":
+                if int(data["trial"]) < C.NUM_PRACTICE_TRIALS - 1:
+                    print(data)
+                    response[player.id_in_group]["trial_id"] = data["trial"]
+                    response[player.id_in_group]["event"] = "next"
+                else:
+                    response[player.id_in_group]["event"] = "end"
+
+            # the page requests the next stimulus
+            elif event == "next":
+                print(data)
+                practice_trials = practice_trial_generator()
+                trial = next(practice_trials)
+                if "trial" in data:
+                    response[player.id_in_group]["trial_id"] = int(data["trial"]) + 1
+                else:
+                    response[player.id_in_group]["trial_id"] = trial["trial"]
+                response[player.id_in_group]["event"] = "trial"
+                response[player.id_in_group]["oddball"] = trial["oddball"]
+                response[player.id_in_group]["foil"] = trial["foil"]
+                response[player.id_in_group]["num_images"] = C.NUM_FOILS + 1
+
+                
+        return response
+    
+class PracticeInstructionsPage(Page):
+    pass
+
+class PracticeDone(Page):
+    pass
 
 class ThankYouPage(Page):
 
@@ -190,4 +288,4 @@ class ThankYouPage(Page):
         return player.round_number == C.NUM_ROUNDS
 
 
-page_sequence = [WelcomePage, DiskFoilPage, ThankYouPage]
+page_sequence = [WelcomePage, PracticeInstructionsPage, PracticeTrialPage, PracticeDone, DiskFoilPage, ThankYouPage]
