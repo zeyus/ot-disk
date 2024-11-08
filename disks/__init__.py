@@ -167,7 +167,7 @@ class DiskFoilPage(Page):
             "oddball": trial.oddball,
             "foil": trial.foil,
             "num_images": C.NUM_FOILS + 1,
-            "num_trials": C.NUM_PRACTICE_TRIALS
+            "num_trials": player.num_trials
         }
     
     @staticmethod
