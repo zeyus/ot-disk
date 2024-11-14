@@ -36,7 +36,7 @@ class AnnotationFreeMeta(DeclarativeMeta):
 class C(BaseConstants):
     NAME_IN_URL: str = "disks"
     PLAYERS_PER_GROUP: int | None = None
-    NUM_ROUNDS: int = 1 # one for each exp type, using live pages
+    NUM_ROUNDS: int = 1  # one for each exp type, using live pages
     STIM_PATH: Path = Path("stimuli")
     STIM_CSV: Path = Path(__file__).parent / "_private/trial_list.csv"
     NUM_FOILS: int = 6
@@ -63,6 +63,7 @@ class Player(BasePlayer, metaclass=AnnotationFreeMeta):
     trial_id: int = models.IntegerField(initial=0)
     num_trials: int = models.IntegerField()
 
+
 class Trial(ExtraModel, metaclass=AnnotationFreeMeta):
     trial_id: int = models.IntegerField()
     oddball: str = models.StringField()
@@ -74,7 +75,6 @@ class Trial(ExtraModel, metaclass=AnnotationFreeMeta):
     response: str = models.StringField(initial="")
     correct: bool = models.BooleanField(initial=False)
     response_time: float = models.FloatField(initial=0.0)
-
 
 
 class Subsession(BaseSubsession, metaclass=AnnotationFreeMeta):
@@ -91,6 +91,7 @@ def get_practice_stims() -> list[str]:
         (stims / "practice5.jpg").as_posix(),
         (stims / "practice6.jpg").as_posix(),
     ]
+
 
 def practice_trial_generator() -> Generator[dict[str, str | int], None, None]:
     stims = get_practice_stims()
@@ -120,7 +121,7 @@ def get_stim_list(id: int) -> pd.DataFrame:
 
 def creating_session(subsession: Subsession) -> None:
     # the order column represents the experiment type (0 or 1)
-    for i,p in enumerate(subsession.get_players()):
+    for i, p in enumerate(subsession.get_players()):
         # get the stim list for this player
         stim_list = get_stim_list(i)
         num_trials = len(stim_list)
@@ -130,11 +131,12 @@ def creating_session(subsession: Subsession) -> None:
         for _, row in stim_list.iterrows():
             Trial.create(
                 trial_id=row["trial"],
-                oddball=(C.STIM_PATH/row["oddball"]).with_suffix(".png").as_posix(),
-                foil=(C.STIM_PATH/row["foil"]).with_suffix(".png").as_posix(),
+                oddball=(C.STIM_PATH / row["oddball"]).with_suffix(".png").as_posix(),
+                foil=(C.STIM_PATH / row["foil"]).with_suffix(".png").as_posix(),
                 csv_order=row["order"],
-                player=p
+                player=p,
             )
+
 
 def get_current_trial(player: Player, *, update_start_time: bool = True) -> Trial:
     t = Trial.filter(player=player, trial_id=player.trial_id)[0]
@@ -142,9 +144,9 @@ def get_current_trial(player: Player, *, update_start_time: bool = True) -> Tria
         t.trial_start = datetime.now().timestamp()
     return t
 
+
 # PAGES
 class WelcomePage(Page):
-
     # only display this page on the first round
     @staticmethod
     def is_displayed(player: Player):
@@ -152,12 +154,11 @@ class WelcomePage(Page):
 
 
 class DiskFoilPage(Page):
-
     # only display this page on the first round
     @staticmethod
     def is_displayed(player: Player):
         return player.trial_id < player.num_trials
-    
+
     @staticmethod
     def vars_for_template(player: Player):
         trial = get_current_trial(player)
@@ -167,15 +168,13 @@ class DiskFoilPage(Page):
             "oddball": trial.oddball,
             "foil": trial.foil,
             "num_images": C.NUM_FOILS + 1,
-            "num_trials": player.num_trials
+            "num_trials": player.num_trials,
         }
-    
+
     @staticmethod
     def live_method(player: Player, data: dict[str, Any]):
         # prepare response (default to error)
-        response: dict[str, Any] = {
-            player.id_in_group: {"event": "error"}
-        }
+        response: dict[str, Any] = {player.id_in_group: {"event": "error"}}
 
         # must have an event key
         if "event" in data:
@@ -192,7 +191,7 @@ class DiskFoilPage(Page):
                     trial.correct = data["isOddball"]
                     trial.trial_end = datetime.now().timestamp()
                     trial.response_time = trial.trial_end - trial.trial_start
-                    print(player.trial_id + 1, ' / ', player.num_trials)
+                    print(player.trial_id + 1, " / ", player.num_trials)
                     player.trial_id += 1
                     if player.trial_id < player.num_trials:
                         response[player.id_in_group]["event"] = "next"
@@ -207,16 +206,31 @@ class DiskFoilPage(Page):
                 response[player.id_in_group]["oddball"] = trial.oddball
                 response[player.id_in_group]["foil"] = trial.foil
                 response[player.id_in_group]["num_images"] = C.NUM_FOILS + 1
-                
+
         return response
+    
+
+class DiskFoilPageBlockTwo(DiskFoilPage):
+    template_name: str = "disks/DiskFoilPage.html"
+
+
+class DiskFoilPageBlockThree(DiskFoilPage):
+    template_name: str = "disks/DiskFoilPage.html"
+
+class BreakPage(Page):
+    pass
+
+class BreakPageTwo(BreakPage):
+    template_name: str = "disks/BreakPage.html"
 
 class PracticeTrialPage(Page):
     template_name: str = "disks/DiskFoilPage.html"
+
     # only display this page on the first round
     @staticmethod
     def is_displayed(player: Player):
         return player.trial_id < player.num_trials
-    
+
     @staticmethod
     def vars_for_template(player: Player):
         practice_trials = practice_trial_generator()
@@ -226,15 +240,13 @@ class PracticeTrialPage(Page):
             "oddball": trial["oddball"],
             "foil": trial["foil"],
             "num_images": C.NUM_FOILS + 1,
-            "num_trials": C.NUM_PRACTICE_TRIALS
+            "num_trials": C.NUM_PRACTICE_TRIALS,
         }
-    
+
     @staticmethod
     def live_method(player: Player, data: dict[str, Any]):
         # prepare response (default to error)
-        response: dict[str, Any] = {
-            player.id_in_group: {"event": "error"}
-        }
+        response: dict[str, Any] = {player.id_in_group: {"event": "error"}}
 
         # must have an event key
         if "event" in data:
@@ -271,21 +283,33 @@ class PracticeTrialPage(Page):
                 response[player.id_in_group]["foil"] = trial["foil"]
                 response[player.id_in_group]["num_images"] = C.NUM_FOILS + 1
 
-                
         return response
-    
+
+
 class PracticeInstructionsPage(Page):
     pass
+
 
 class PracticeDone(Page):
     pass
 
-class ThankYouPage(Page):
 
+class ThankYouPage(Page):
     # only display this page on the last round
     @staticmethod
     def is_displayed(player: Player):
         return player.round_number == C.NUM_ROUNDS
 
 
-page_sequence = [WelcomePage, PracticeInstructionsPage, PracticeTrialPage, PracticeDone, DiskFoilPage, ThankYouPage]
+page_sequence = [
+    WelcomePage,
+    PracticeInstructionsPage,
+    PracticeTrialPage,
+    PracticeDone,
+    DiskFoilPage,
+    BreakPage,
+    DiskFoilPageBlockTwo,
+    BreakPageTwo,
+    DiskFoilPageBlockThree,
+    ThankYouPage,
+]

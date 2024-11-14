@@ -248,7 +248,12 @@
             }
 
             function updateTrialInfo(infoEl, trialNum, nTrials) {
-                infoEl.innerHTML = `Trial ${trialNum} of ${nTrials}`;
+                // update the block number (block is 222 trials)
+                const blockNum = Math.floor(trialNum / 222) + 1;
+                // trial number is within the block
+                trialNum = trialNum % 222;
+                const trialsInBlock = trialNum === 0 ? 222 : trialNum;
+                infoEl.innerHTML = `Block ${blockNum}, Trial ${trialNum}/222`;	
             }
 
 
