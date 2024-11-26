@@ -60,6 +60,7 @@
     <input type="hidden" id="oddball" value="{{ oddball }}" />
     <input type="hidden" id="num_images" value="{{ num_images }}" />
     <input type="hidden" id="num_trials" value="{{ num_trials }}" />
+    <input type="hidden" id="page_type" value="{{ page_type }}" />
 
     <script>
         /**
@@ -122,10 +123,16 @@
         
         document.addEventListener("DOMContentLoaded", (event) => {
             console.log('DOM fully loaded and parsed'); 
+
+            function locked() {
+                return Boolean(document.pointerLockElement);
+            }
             // pointer lock test
             const lockMissing = document.getElementById('lock-missing');
             const pleaseWait = document.getElementById('please-wait');
             const canvas = document.getElementById('canvas');
+            // canvas.requestPointerLock = canvas.requestPointerLock || canvas.mozRequestPointerLock;
+            // document.exitPointerLock = document.exitPointerLock || document.mozExitPointerLock;
             const ctx = canvas.getContext('2d');
             const otreeForm = document.getElementById('form');
             
@@ -142,8 +149,13 @@
             const nImages = document.getElementById('num_images').value;
             const nTrials = document.getElementById('num_trials').value;
             const trialInfo = document.getElementById('trial-info');
+            const pageType = document.getElementById('page_type');
 
-            updateTrialInfo(trialInfo, parseInt(trial.value)+1, nTrials);
+            if (pageType.value === 'practice') {
+                trialInfo.innerHTML = 'Practice';
+            } else {
+                updateTrialInfo(trialInfo, parseInt(trial.value)+1, nTrials);
+            }
             // const choice1El = document.getElementById('choice_1');
             // const choice2El = document.getElementById('choice_2');
             // const target_img = document.getElementById('target_img');
@@ -211,7 +223,7 @@
             }
             /* draw a mouse pointer, but no line or trail */
             function trace(event){
-                if (!document.pointerLockElement) {
+                if (!locked()) {
                     showLockMissing();
                     return;
                 }
@@ -249,11 +261,13 @@
 
             function updateTrialInfo(infoEl, trialNum, nTrials) {
                 // update the block number (block is 222 trials)
-                const blockNum = Math.floor(trialNum / 222) + 1;
+                const blockNum = Math.floor((trialNum - 1) / 222) + 1;
                 // trial number is within the block
-                trialNum = trialNum % 222;
-                const trialsInBlock = trialNum === 0 ? 222 : trialNum;
-                infoEl.innerHTML = `Block ${blockNum}, Trial ${trialNum}/222`;	
+                trialNum = (trialNum) % 222;
+                const trialInBlock = trialNum === 0 ? 222 : trialNum;
+                infoEl.innerHTML = `Block ${blockNum}, Trial ${trialInBlock}/222`;
+
+                return { block: blockNum, trial: trialInBlock };
             }
 
 
@@ -268,7 +282,7 @@
 
 
             async function lockPointer() {
-                if(document.pointerLockElement) {
+                if(locked()) {
                     lockMissing.style.display = 'none';
                     startPointing();
                     return;
@@ -286,7 +300,7 @@
             }
             
             canvas.addEventListener("click", async () => {
-                if (document.pointerLockElement) {
+                if (locked()) {
                     if (!pointing || !trialReady) return;
                     checkTarget();
                     return;
@@ -294,7 +308,7 @@
                 await lockPointer();
             });
             lockMissing.addEventListener("click", async () => {
-                if (!document.pointerLockElement) {
+                if (!locked()) {
                     await lockPointer();
                 }
                 lockMissing.style.display = 'none';
@@ -380,6 +394,7 @@
                 }
                 trialDone = false;
                 resultImg = null;
+                liveSend({ event: 'start' });
                 console.log('trial started');
                 clearCanvas();
                 moveCursorToCenter();
@@ -419,6 +434,7 @@
                             trial_id = data.trial_id;
                         }
                         // show result, then request next trial
+                        console.log('next trial, current: ', trial_id);
                         liveSend({ event: 'next', trial: trial_id });
                         break;
                     case 'trial':
@@ -426,7 +442,13 @@
                         trial.value = data.trial_id;
                         foil.value = data.foil;
                         oddball.value = data.oddball;
-                        updateTrialInfo(trialInfo, parseInt(trial.value)+1, nTrials);
+                        pageType.value = data.page_type;
+
+                        if (data.page_type === 'practice') {
+                            trialInfo.innerHTML = 'Practice';
+                        } else {
+                            updateTrialInfo(trialInfo, parseInt(trial.value)+1, nTrials);
+                        }
                         // start with a 1 second delay
                         // to avoid participants flying through all the trials
                         updateTrial();

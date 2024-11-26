@@ -13,7 +13,7 @@ from otree.models import Participant  # type: ignore
 import json
 from random import randint
 from datetime import datetime
-from typing import Generator, Any, Literal
+from typing import ClassVar, Generator, Any, Literal
 from pathlib import Path
 import pandas as pd
 
@@ -41,6 +41,7 @@ class C(BaseConstants):
     STIM_CSV: Path = Path(__file__).parent / "_private/trial_list.csv"
     NUM_FOILS: int = 6
     NUM_PRACTICE_TRIALS: int = 3
+    TRIALS_IN_BLOCK: int = 222
 
 
 class DataCache:
@@ -154,6 +155,7 @@ class WelcomePage(Page):
 
 
 class DiskFoilPage(Page):
+    block_id: ClassVar[int] = 1
     # only display this page on the first round
     @staticmethod
     def is_displayed(player: Player):
@@ -169,18 +171,24 @@ class DiskFoilPage(Page):
             "foil": trial.foil,
             "num_images": C.NUM_FOILS + 1,
             "num_trials": player.num_trials,
+            "page_type": "experiment",
         }
 
     @staticmethod
-    def live_method(player: Player, data: dict[str, Any]):
+    def live_method(player: Player, data: dict[str, Any], block: Literal[1, 2, 3] = 1):
         # prepare response (default to error)
-        response: dict[str, Any] = {player.id_in_group: {"event": "error"}}
-
+        response: dict[str, Any] = {
+            player.id_in_group: {
+                "event": "error",
+                "page_type": "experiment",
+            }
+        }
         # must have an event key
         if "event" in data:
             event = data["event"]
 
             if event == "start":
+                response[player.id_in_group]["event"] = "start_ack"
                 trial = get_current_trial(player)
                 trial.trial_start = datetime.now().timestamp()
             # the participant has madae a selection
@@ -192,8 +200,9 @@ class DiskFoilPage(Page):
                     trial.trial_end = datetime.now().timestamp()
                     trial.response_time = trial.trial_end - trial.trial_start
                     print(player.trial_id + 1, " / ", player.num_trials)
+                    print("response time: ", trial.response_time)
                     player.trial_id += 1
-                    if player.trial_id < player.num_trials:
+                    if player.trial_id < block * C.TRIALS_IN_BLOCK:
                         response[player.id_in_group]["event"] = "next"
                     else:
                         response[player.id_in_group]["event"] = "end"
@@ -212,10 +221,18 @@ class DiskFoilPage(Page):
 
 class DiskFoilPageBlockTwo(DiskFoilPage):
     template_name: str = "disks/DiskFoilPage.html"
+    block_id: ClassVar[int] = 2
+    @staticmethod
+    def live_method(player: Player, data: dict[str, Any], block: Literal[1, 2, 3] = 2):
+        return DiskFoilPage.live_method(player, data, block)
 
 
 class DiskFoilPageBlockThree(DiskFoilPage):
     template_name: str = "disks/DiskFoilPage.html"
+    block_id: ClassVar[int] = 3
+    @staticmethod
+    def live_method(player: Player, data: dict[str, Any], block: Literal[1, 2, 3] = 3):
+        return DiskFoilPage.live_method(player, data, block)
 
 class BreakPage(Page):
     pass
@@ -241,12 +258,18 @@ class PracticeTrialPage(Page):
             "foil": trial["foil"],
             "num_images": C.NUM_FOILS + 1,
             "num_trials": C.NUM_PRACTICE_TRIALS,
+            "page_type": "practice",
         }
 
     @staticmethod
     def live_method(player: Player, data: dict[str, Any]):
         # prepare response (default to error)
-        response: dict[str, Any] = {player.id_in_group: {"event": "error"}}
+        response: dict[str, Any] = {
+            player.id_in_group: {
+                "event": "error",
+                "page_type": "practice",
+            }
+        }
 
         # must have an event key
         if "event" in data:
@@ -263,7 +286,6 @@ class PracticeTrialPage(Page):
             # the participant has madae a selection
             elif event == "choice":
                 if int(data["trial"]) < C.NUM_PRACTICE_TRIALS - 1:
-                    print(data)
                     response[player.id_in_group]["trial_id"] = data["trial"]
                     response[player.id_in_group]["event"] = "next"
                 else:
@@ -313,3 +335,36 @@ page_sequence = [
     DiskFoilPageBlockThree,
     ThankYouPage,
 ]
+
+
+
+def custom_export(players: list[Player]) -> Generator[list[str | int | float | bool], Any, Any]:
+    # header row
+    yield [
+        "participant_code",
+        "participant_label",
+        "trial_id",
+        "oddball",
+        "foil",
+        "csv_order",
+        "response",
+        "correct",
+        "response_time",
+        "id_in_group",
+        "id_in_csv",
+    ]
+    for player in players:
+        for trial in Trial.filter(player=player):
+            yield [
+                player.participant.code,
+                player.participant.label or "",
+                trial.trial_id,
+                trial.oddball,
+                trial.foil,
+                trial.csv_order,
+                trial.response,
+                trial.correct,
+                trial.response_time,
+                player.id_in_group,
+                player.id_in_group - 1,
+            ]
