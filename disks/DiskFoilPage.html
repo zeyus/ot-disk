@@ -420,8 +420,12 @@
                 return;
             }
             console.log('trial', trial.value);
-            updateTrial(false);
-
+            updateTrial();
+            clearCanvas();
+            drawContinueButton();
+            canvas.addEventListener("click", () => {
+                startTrial();
+            }, { once: true });
             
 
             liveRecv = function(data) {

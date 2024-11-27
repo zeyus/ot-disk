@@ -293,7 +293,6 @@ class PracticeTrialPage(Page):
 
             # the page requests the next stimulus
             elif event == "next":
-                print(data)
                 practice_trials = practice_trial_generator()
                 trial = next(practice_trials)
                 if "trial" in data:
